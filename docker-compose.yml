@@ -1,0 +1,28 @@
+version: '3'
+services:
+  test-standalone:
+    image: test-standalone:latest
+    volumes:
+      - /Users/zong/.kube/config:/kube.config
+
+# 启动方式：
+# docker-compose up -d --remove-orphans --force-recreate
+
+# 之后，可以使用 docker logs查看日志
+# docker logs -f client-go-helloworld_test-standalone_1
+
+# 当我们使用以下命令和文件创建新的configmap的时候，就可以看到docker logs输出的日志。
+
+# $ kubectl apply -f test.yaml
+
+# 日志如下
+  # add default cm-canary-template-configmap
+  # delete default cm-canary-template-configmap
+
+# 在k8s的event中也可以看到相关的时间报告。
+
+# $ kubectl get events
+
+  # LAST SEEN     TYPE     REASON       OBJECT               MESSAGE
+  #   50s         Normal   Deployed     configmap/cm-canary  object addition has been notified by informer
+  #   43s         Normal   Deployed     configmap/cm-canary  object deletion has been notified by informer
