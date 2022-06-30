@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -27,10 +28,30 @@ var (
 	chSigs      chan os.Signal
 	cfgInformer cache.SharedIndexInformer
 	recorder    events.EventRecorder
+	queue       chan RecordObj
 )
 
-func main() {
+type RecordObj struct {
+	object  runtime.Object
+	reason  string
+	message string
+}
 
+func recordDaemon(stopCh <-chan struct{}) {
+	for {
+		select {
+		case <-stopCh:
+			return
+		case r := <-queue:
+			fmt.Println(r)
+			recorder.Eventf(r.object, nil, v1.EventTypeNormal, r.reason, "", r.message)
+		}
+	}
+
+}
+func main() {
+	fmt.Println("Program started.")
+	queue = make(chan RecordObj, 50)
 	stopCh = make(chan struct{})
 	go handleSignals(stopCh)
 
@@ -69,20 +90,37 @@ func main() {
 		AddFunc: func(obj interface{}) {
 			abc := obj.(*v1.ConfigMap)
 			fmt.Printf("add %s %s\n", abc.Namespace, abc.Name)
-			recorder.Eventf(abc, nil, v1.EventTypeNormal, "Deployed", "", "object addition has been notified by informer")
+			queue <- RecordObj{
+				object:  abc,
+				reason:  "Deployed",
+				message: "object addition has been notified by informer",
+			}
+			abc.GetObjectKind()
+			// recorder.Eventf(abc, nil, v1.EventTypeNormal, "Deployed", "", "object addition has been notified by informer")
 		},
 		UpdateFunc: func(old, cur interface{}) {
 			orig := old.(*v1.ConfigMap)
 			newa := cur.(*v1.ConfigMap)
 			if orig.GetUID() != newa.GetUID() || orig.GetResourceVersion() != newa.GetResourceVersion() {
 				fmt.Printf("%s %s -> %s %s\n", orig.Namespace, orig.Name, newa.Namespace, newa.Name)
-				recorder.Eventf(newa, nil, v1.EventTypeNormal, "Deployed", "", "object update has been notified by informer")
+
+				queue <- RecordObj{
+					object:  newa,
+					reason:  "Updated",
+					message: "object update has been notified by informer",
+				}
+				// recorder.Eventf(newa, nil, v1.EventTypeNormal, "Updated", "", "object update has been notified by informer")
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			abc := obj.(*v1.ConfigMap)
 			fmt.Printf("delete %s %s\n", abc.Namespace, abc.Name)
-			recorder.Eventf(abc, nil, v1.EventTypeNormal, "Deployed", "", "object deletion has been notified by informer")
+			queue <- RecordObj{
+				object:  abc,
+				reason:  "Deleted",
+				message: "object deletion has been notified by informer",
+			}
+			// recorder.Eventf(abc, nil, v1.EventTypeNormal, "Deleted", "", "object deletion has been notified by informer")
 		},
 	})
 
@@ -94,6 +132,7 @@ func main() {
 	eba.StartRecordingToSink(stopCh)
 	sharedInformerFactory.Start(stopCh)
 
+	go recordDaemon(stopCh)
 	doNilLoop()
 }
 
