@@ -10,9 +10,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/tools/record"
+
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 // 处理信号，并及时关闭stopCh
@@ -27,8 +30,9 @@ var (
 	stopCh      chan struct{}
 	chSigs      chan os.Signal
 	cfgInformer cache.SharedIndexInformer
-	recorder    events.EventRecorder
-	queue       chan RecordObj
+	// recorder    events.EventRecorder
+	recorder record.EventRecorder
+	queue    chan RecordObj
 )
 
 type RecordObj struct {
@@ -43,8 +47,9 @@ func recordDaemon(stopCh <-chan struct{}) {
 		case <-stopCh:
 			return
 		case r := <-queue:
-			fmt.Println(r)
-			recorder.Eventf(r.object, nil, v1.EventTypeNormal, r.reason, "", r.message)
+			fmt.Printf("%#v\n", r)
+			// recorder.Eventf(r.object, nil, v1.EventTypeNormal, r.reason, "", r.message)
+			recorder.Event(r.object, v1.EventTypeNormal, r.reason, r.message)
 		}
 	}
 
@@ -78,7 +83,7 @@ func main() {
 	sharedInformerFactory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
 		30*time.Second,
-		informers.WithNamespace("default"), // for test: limit resource scope to default.
+		// informers.WithNamespace("default"), // for test: limit resource scope to default.
 		// informers.WithTweakListOptions(matchLabelSelector),
 	)
 
@@ -125,11 +130,16 @@ func main() {
 	})
 
 	// 创建EventRecorder 过程。
-	eba := events.NewEventBroadcasterAdapter(clientset)
-	recorder = eba.NewRecorder("my-event-recorder")
+	// 老方式
+	// eba := events.NewEventBroadcasterAdapter(clientset)
+	// recorder = eba.NewRecorder("my-event-recorder")
+	// eba.StartRecordingToSink(stopCh)
 
-	// 开始工作
-	eba.StartRecordingToSink(stopCh)
+	// 新方式
+	eba := record.NewBroadcaster()
+	eba.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientset.CoreV1().Events("")})
+	recorder = eba.NewRecorder(scheme.Scheme, v1.EventSource{Component: "my-event-recorder"})
+
 	sharedInformerFactory.Start(stopCh)
 
 	go recordDaemon(stopCh)
