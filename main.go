@@ -18,7 +18,6 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
-// 处理信号，并及时关闭stopCh
 func handleSignals(stopCh chan struct{}) {
 	chSigs = make(chan os.Signal)
 	signal.Notify(chSigs, os.Interrupt)
@@ -65,7 +64,6 @@ func main() {
 		return
 	}
 
-	// 创建clientset，共informer和events 共用。
 	kubeConf := os.Args[1]
 	config, err := clientcmd.BuildConfigFromFlags("", kubeConf)
 	if nil != err {
@@ -76,7 +74,6 @@ func main() {
 		panic(err.Error())
 	}
 
-	// Labelselector可以用来过滤仅需要关注的资源
 	// matchLabelSelector := func(opts *metav1.ListOptions) {
 	// 	// opts.LabelSelector = "somelabel=xyz"
 	// }
@@ -87,10 +84,8 @@ func main() {
 		// informers.WithTweakListOptions(matchLabelSelector),
 	)
 
-	// 创建针对configmap的informer
 	cfgInformer = sharedInformerFactory.Core().V1().ConfigMaps().Informer()
 
-	// 为informer添加处理函数
 	cfgInformer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			abc := obj.(*v1.ConfigMap)
@@ -129,13 +124,10 @@ func main() {
 		},
 	})
 
-	// 创建EventRecorder 过程。
-	// 老方式
 	// eba := events.NewEventBroadcasterAdapter(clientset)
 	// recorder = eba.NewRecorder("my-event-recorder")
 	// eba.StartRecordingToSink(stopCh)
 
-	// 新方式
 	eba := record.NewBroadcaster()
 	eba.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientset.CoreV1().Events("")})
 	recorder = eba.NewRecorder(scheme.Scheme, v1.EventSource{Component: "my-event-recorder"})
